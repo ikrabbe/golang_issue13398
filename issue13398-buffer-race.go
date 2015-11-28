@@ -2,35 +2,22 @@ package main
 
 import (
 	"bytes"
-	"fmt"
-	"io"
 	"log"
 	"os"
 	"os/exec"
+	"sync"
 	"time"
 )
 
-type MyBuffer struct {
-	intbuf bytes.Buffer
-}
-
-func (mb *MyBuffer) WriteTo(w io.Writer) (n int64, err error) {
-	return mb.intbuf.WriteTo(w)
-}
-
-func (mb *MyBuffer) Len() int {
-	return mb.intbuf.Len()
-}
-
-func (mb *MyBuffer) Write(p []byte) (n int, err error) {
-	return mb.intbuf.Write(p)
-}
-
 func main() {
-	out := MyBuffer{}
+	var oblock sync.Mutex
+	ob := bytes.Buffer{}
 	cmd := exec.Command("cmd/test_command")
-	cmd.Stdout = &out
-	err := cmd.Start()
+	out, err := cmd.StdoutPipe()
+	if err != nil {
+		log.Fatal(err)
+	}
+	err = cmd.Start()
 	if err != nil {
 		log.Fatal(err)
 	}
@@ -38,9 +25,31 @@ func main() {
 	if err != nil {
 		log.Fatal(err)
 	}
-	for {
+	end := make(chan error)
+	go func() {
+		var buf [1024]byte
+		var err error
+		var n int
+		for err == nil {
+			n, err = out.Read(buf[:])
+			if n > 0 {
+				oblock.Lock()
+				ob.Write(buf[:n])
+				oblock.Unlock()
+			}
+		}
+		end <- err
+	}()
+	for err == nil {
 		time.Sleep(step)
-		os.Stderr.Write([]byte(fmt.Sprintf("Buffer Length %d\n", out.Len())))
-		out.WriteTo(os.Stdout)
+		select {
+		case err = <-end:
+		default:
+			oblock.Lock()
+			ob.WriteTo(os.Stdout)
+			oblock.Unlock()
+		}
 	}
+	ob.WriteTo(os.Stdout)
+	log.Print("Goodbye!")
 }
