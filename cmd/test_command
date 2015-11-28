@@ -1,0 +1,9 @@
+#!/bin/sh
+T=${1:-60}
+for i in `seq 1 $T`
+do
+let "T--"
+printf "%02ds " $T
+sleep 1
+done
+printf "\nDone.\n"
